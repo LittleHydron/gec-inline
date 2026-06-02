@@ -125,7 +125,11 @@ SFT_CELLS = [
     md("## 5. Configure the SFT trainer"),
     code(
         "from trl import SFTTrainer, SFTConfig\n"
+        "from unsloth import is_bfloat16_supported\n"
         "from unsloth.chat_templates import train_on_responses_only\n"
+        "\n"
+        "# T4 is Turing -> fp16 only. A100/L4/H100 are Ampere+ -> bf16.\n"
+        "USE_BF16 = is_bfloat16_supported()\n"
         "\n"
         "config = SFTConfig(\n"
         "    output_dir = 'outputs/sft',\n"
@@ -141,8 +145,8 @@ SFT_CELLS = [
         "    save_strategy = 'epoch',\n"
         "    save_total_limit = 1,\n"
         "    seed = 3407,\n"
-        "    bf16 = True,\n"
-        "    fp16 = False,\n"
+        "    bf16 = USE_BF16,\n"
+        "    fp16 = not USE_BF16,\n"
         "    max_seq_length = MAX_SEQ_LEN,\n"
         "    dataset_text_field = 'text',\n"
         "    packing = False,\n"
@@ -327,6 +331,9 @@ DPO_CELLS = [
     md("## 5. Configure DPO"),
     code(
         "from trl import DPOTrainer, DPOConfig\n"
+        "from unsloth import is_bfloat16_supported\n"
+        "\n"
+        "USE_BF16 = is_bfloat16_supported()\n"
         "\n"
         "config = DPOConfig(\n"
         "    output_dir = 'outputs/dpo',\n"
@@ -342,8 +349,8 @@ DPO_CELLS = [
         "    save_strategy = 'epoch',\n"
         "    save_total_limit = 1,\n"
         "    seed = 3407,\n"
-        "    bf16 = True,\n"
-        "    fp16 = False,\n"
+        "    bf16 = USE_BF16,\n"
+        "    fp16 = not USE_BF16,\n"
         "    beta = 0.1,\n"
         "    max_length = MAX_SEQ_LEN,\n"
         "    max_prompt_length = 512,\n"
