@@ -1,0 +1,7 @@
+# Extras required only on Colab T4 (or any CUDA box) for training.
+# Install AFTER requirements.txt has been satisfied (Unsloth pins its own
+# torch wheel — Colab images already ship a compatible torch).
+unsloth
+trl>=0.11.0
+bitsandbytes>=0.43.0
+peft>=0.13.0
