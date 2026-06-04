@@ -86,6 +86,12 @@ def _load(variant: str):
         # The DPO adapter was trained on the merged 16-bit SFT model.
         base, adapter = DPO_BASE_MODEL, DPO_ADAPTER
     tok, model = load_model(base, adapter_id=adapter)
+    # On a GPU host (e.g. the Modal demo) move the weights over; on CPU
+    # Spaces this is a no-op and on ZeroGPU the @spaces.GPU decorator
+    # owns device placement (cuda is not visible at load time there).
+    import torch
+    if torch.cuda.is_available():
+        model = model.to("cuda")
     print(f"[boot] loaded {variant} in {time.time() - t0:.1f}s")
     return tok, model
 
