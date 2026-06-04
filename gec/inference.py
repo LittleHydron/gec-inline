@@ -48,6 +48,9 @@ def load_model(
     tok = AutoTokenizer.from_pretrained(base_model)
     if tok.pad_token_id is None:
         tok.pad_token_id = tok.eos_token_id
+    # Decoder-only models must be left-padded for batched generation,
+    # otherwise the shorter sequences in a batch generate from pad tokens.
+    tok.padding_side = "left"
 
     kwargs: dict = {}
     if dtype == "4bit":

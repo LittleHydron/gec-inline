@@ -3,7 +3,7 @@
 Submission for the LPNLP "Fine-tuning LLM" homework.
 
 > The numbers in the **Results** section below are placeholders that
-> get filled in by `scripts/eval.py` after Colab training completes.
+> get filled in by `scripts/eval.py` after Modal training completes.
 > Update them once the SFT and DPO adapters have been evaluated.
 
 ## Task
@@ -72,9 +72,12 @@ DPO pairs are built by `scripts/build_dpo_pairs.py`:
 - First-class Unsloth support (the framework recommended by the PDF);
   there is an official 4-bit checkpoint at
   `unsloth/Qwen2.5-3B-Instruct-bnb-4bit`.
-- Fits Colab T4 16 GB with QLoRA at seq_len 1024, batch 2 × grad-accum
-  4. DPO doubles activation memory (chosen + rejected forward pass);
-  we run DPO with batch 1 × grad-accum 8 and still fit.
+- Trains comfortably with QLoRA at seq_len 1024, batch 2 × grad-accum 4
+  on a Modal L4 24 GB (~$0.80/h out of the $30/month free credits — both
+  Modal and Unsloth are suggested by the assignment PDF), and still fits
+  a free Colab T4 16 GB via the legacy notebooks. DPO doubles activation
+  memory (chosen + rejected forward pass); we run DPO with batch 1 ×
+  grad-accum 8.
 - Tokenises English compactly (~1.3 chars/token on BEA), so 10 k
   training examples fit in well under one epoch of training-time
   budget on a free T4.
@@ -139,7 +142,7 @@ the prompt tokens.
 
 ## Results
 
-> Numbers are filled in after Colab training completes. Until then,
+> Numbers are filled in after Modal training completes. Until then,
 > the only entry below is the **oracle upper bound**: the same
 > ERRANT pipeline applied to the gold target sentences themselves,
 > which tells us how high any model can possibly score given
@@ -175,25 +178,38 @@ based on prior GEC fine-tuning literature with 3 B-class models:_
 
 ## Reproducibility
 
-All code, data-prep scripts and notebooks live in the repo at
-`/home/hydra/nulp/nlp/gec-inline/`. Trained adapters will be pushed
-to the HuggingFace Hub under `<user>/qwen2.5-3b-gec-sft` and
-`<user>/qwen2.5-3b-gec-dpo`. The Gradio demo is deployed to a Space at
-`huggingface.co/spaces/<user>/gec-inline`.
+All code, data-prep scripts, the Modal pipeline and the legacy Colab
+notebooks live in the repo at `github.com/LittleHydron/gec-inline`.
+Trained adapters are pushed to the HuggingFace Hub under
+`Lopato4ka/qwen2.5-3b-gec-sft` (plus a merged 16-bit copy at
+`…-sft-merged`, the base the DPO adapter is trained on) and
+`Lopato4ka/qwen2.5-3b-gec-dpo`. The Gradio demo is deployed to a Space
+at `huggingface.co/spaces/Lopato4ka/gec-inline`.
 
-To rebuild metrics from scratch:
+Training + prediction generation run on Modal (suggested by the
+assignment PDF; ~$5 of the $30/month free credits for the whole
+pipeline):
+
+```bash
+pip install modal && modal setup
+modal secret create huggingface HF_TOKEN=hf_xxx
+modal run -m modal_app.app::run_all      # SFT -> DPO pairs -> DPO -> 12 prediction sets
+modal volume get gec-inline-results predictions/ results/predictions/
+```
+
+ERRANT scoring is CPU-only and runs locally:
 
 ```bash
 .venv/bin/python -m scripts.build_dataset \
     --m2 data/raw/wi+locness/m2/ABC.train.gold.bea19.m2 \
     --m2 data/raw/fce/m2/fce.train.gold.bea19.m2
 
-.venv/bin/python -m scripts.generate --eval data/processed/eval_bea_dev.jsonl \
-    --base-model Qwen/Qwen2.5-3B-Instruct --adapter <user>/qwen2.5-3b-gec-sft \
-    --out results/predictions/sft_bea_dev.jsonl
-
 .venv/bin/python -m scripts.eval --mode bea \
     --predictions results/predictions/sft_bea_dev.jsonl \
     --ref-m2 data/raw/wi+locness/m2/ABCN.dev.gold.bea19.m2 \
     --out results/metrics/sft_bea_dev.json
 ```
+
+(`scripts/generate.py` remains usable locally against any published
+adapter if you have a GPU; on Modal the same code path is invoked by
+`modal_app/app.py::generate`.)

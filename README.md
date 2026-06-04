@@ -33,7 +33,7 @@ assignment PDF in the parent directory.
 | **Base model** | `Qwen/Qwen2.5-3B-Instruct` (3.1 B parameters, English-strong, mature Unsloth kernels, fits free Colab T4 in 4-bit). |
 | **Training data** | BEA-2019 W&I+LOCNESS `ABC.train` + FCE `train`, both as M2 — 10 000 sampled sentences (~95 % with edits, ~5 % already-correct). Built by `scripts/build_dataset.py` from the official Cambridge tarballs. |
 | **Evaluation** | (1) ERRANT F0.5 on **BEA-2019 W&I+LOCNESS dev** (`ABCN.dev`, 4 384 sentences) — canonical single-reference GEC metric. (2) Exact-match accuracy on **JFLEG dev** (754 sentences, 4 references each). (3) Parse-failure rate and trivial-copy rate as auxiliary metrics. (4) 30-row qualitative side-by-side table in `results/qualitative.md`. |
-| **Training framework** | [Unsloth](https://github.com/unslothai/unsloth) (PDF-recommended; QLoRA in 4-bit with `train_on_responses_only`) on free Colab T4. |
+| **Training framework** | [Unsloth](https://github.com/unslothai/unsloth) (PDF-recommended; QLoRA in 4-bit with `train_on_responses_only`) on a [Modal](https://modal.com) L4 GPU ($30/month free credits, also PDF-recommended). Legacy Colab notebooks kept as an alternative path. |
 | **Fine-tuning** | LoRA SFT (rank 16, α 32, target = all linear modules, lr 2e-4, 2 epochs, cosine schedule, weight decay 0.01, adamw_8bit, batch 2 × grad-accum 4 = effective 8). |
 | **Preference optimisation (bonus)** | DPO on top of the SFT adapter using preference pairs synthesized from gold + SFT outputs (β = 0.1, lr 5e-6, 1 epoch). |
 | **Demo** | This Gradio Space. Model dropdown switches between "Base + few-shot" (fair zero-training baseline), "SFT", and "DPO". Output shows the raw bracketed string, an HTML-highlighted diff, and the cleaned-up corrected sentence. |
@@ -60,12 +60,12 @@ cd ../..
     --m2 data/raw/wi+locness/m2/ABC.train.gold.bea19.m2 \
     --m2 data/raw/fce/m2/fce.train.gold.bea19.m2
 
-# Then either open notebooks/01_sft_qwen25_3b.ipynb on Colab,
+# Then either train on Modal (see "Training (Modal)" below),
 # OR run inference + eval against a published adapter:
 .venv/bin/python -m scripts.generate \
     --eval data/processed/eval_bea_dev.jsonl \
     --base-model Qwen/Qwen2.5-3B-Instruct \
-    --adapter <user>/qwen2.5-3b-gec-sft \
+    --adapter Lopato4ka/qwen2.5-3b-gec-sft \
     --out results/predictions/sft_bea_dev.jsonl
 
 .venv/bin/python -m scripts.eval --mode bea \
@@ -77,12 +77,50 @@ cd ../..
 To launch the Gradio demo locally with both adapters loaded:
 
 ```bash
-GEC_SFT_ADAPTER=<user>/qwen2.5-3b-gec-sft \
-GEC_DPO_ADAPTER=<user>/qwen2.5-3b-gec-dpo \
+GEC_SFT_ADAPTER=Lopato4ka/qwen2.5-3b-gec-sft \
+GEC_DPO_BASE_MODEL=Lopato4ka/qwen2.5-3b-gec-sft-merged \
+GEC_DPO_ADAPTER=Lopato4ka/qwen2.5-3b-gec-dpo \
 .venv/bin/python app.py
 ```
 
-## Training (Colab)
+## Training (Modal — primary path)
+
+[Modal](https://modal.com) gives $30/month of free GPU credits; the whole
+pipeline (SFT + DPO + every eval-prediction run) costs ≈ $5 on L4s and
+runs detached — no Colab usage-limit roulette, no ephemeral filesystem.
+
+One-time setup:
+
+```bash
+pip install modal
+modal setup                                       # browser auth
+modal secret create huggingface HF_TOKEN=hf_xxx   # write-scoped HF token
+```
+
+Then, from the repo root:
+
+```bash
+modal run -m modal_app.app::smoke     # ~3 min sanity check (8 sentences)
+modal run -m modal_app.app::run_all   # SFT -> DPO pairs -> DPO -> all 12 prediction sets
+```
+
+`run_all` trains SFT, generates SFT predictions on a 4 k train subset,
+rebuilds the DPO pairs with *real* SFT mistakes as rejections, trains DPO,
+and fans out 4 model variants × 3 eval sets of predictions in parallel
+containers (base-model baselines start immediately, in parallel with SFT).
+Each stage is also available separately: `::sft`, `::dpo`, `::gen_all`
+(see `modal_app/app.py` docstring). Artifacts land in the
+`gec-inline-results` volume:
+
+```bash
+modal volume get gec-inline-results predictions/ results/predictions/
+```
+
+Adapters are pushed to `Lopato4ka/qwen2.5-3b-gec-sft` (+ a merged 16-bit
+copy at `…-sft-merged`, which is the base the DPO adapter trains on) and
+`Lopato4ka/qwen2.5-3b-gec-dpo`. Override with `--hf-user`.
+
+## Training (Colab — legacy alternative)
 
 1. Push this repo (or a fork) to GitHub.
 2. Open `notebooks/01_sft_qwen25_3b.ipynb` on Colab with a T4 runtime.
@@ -99,15 +137,16 @@ The `README.md` frontmatter at the top already configures Spaces for
 Gradio. Use **ZeroGPU** hardware (free for verified users).
 
 ```bash
-hf repo create <user>/gec-inline --type space --space-sdk gradio --public
-hf repo settings <user>/gec-inline --space-hardware zero-a10g
-hf upload <user>/gec-inline . . --type space \
+hf repo create Lopato4ka/gec-inline --type space --space-sdk gradio --public
+hf repo settings Lopato4ka/gec-inline --space-hardware zero-a10g
+hf upload Lopato4ka/gec-inline . . --type space \
     --exclude ".venv/*" --exclude "**/__pycache__/**" \
     --exclude ".git/*" --exclude "data/raw/*"
 
 # Set the adapter env vars on the Space (Settings -> Variables and secrets):
-#   GEC_SFT_ADAPTER = <user>/qwen2.5-3b-gec-sft
-#   GEC_DPO_ADAPTER = <user>/qwen2.5-3b-gec-dpo
+#   GEC_SFT_ADAPTER     = Lopato4ka/qwen2.5-3b-gec-sft
+#   GEC_DPO_BASE_MODEL  = Lopato4ka/qwen2.5-3b-gec-sft-merged
+#   GEC_DPO_ADAPTER     = Lopato4ka/qwen2.5-3b-gec-dpo
 ```
 
 ## Repo layout
@@ -127,9 +166,11 @@ gec-inline/
 │   ├── generate.py                 # run a model on an eval set -> predictions
 │   ├── eval.py                     # predictions -> ERRANT F0.5 (BEA) or exact-match (JFLEG)
 │   └── qualitative_table.py        # side-by-side comparison markdown
+├── modal_app/
+│   └── app.py                      # Modal training + generation pipeline (primary)
 ├── notebooks/
-│   ├── 01_sft_qwen25_3b.ipynb      # Colab SFT (Unsloth)
-│   ├── 02_dpo_qwen25_3b.ipynb      # Colab DPO (TRL)
+│   ├── 01_sft_qwen25_3b.ipynb      # Colab SFT (Unsloth) — legacy alternative
+│   ├── 02_dpo_qwen25_3b.ipynb      # Colab DPO (TRL) — legacy alternative
 │   └── _build_notebooks.py         # regenerator
 ├── tests/                          # render/parse round-trip + M2 parser tests
 ├── data/

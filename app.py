@@ -4,15 +4,20 @@ Deploys to HuggingFace Spaces on ZeroGPU: the heavy generation function
 is wrapped with @spaces.GPU so the model is loaded on a free H100 burst.
 
 Model dropdown lets you switch between:
-  - "Base + few-shot"  -> unsloth/Qwen2.5-3B-Instruct with a 3-shot prompt
+  - "Base + few-shot"  -> Qwen/Qwen2.5-3B-Instruct with a 3-shot prompt
                           (fair comparison baseline — see report.md)
-  - "SFT"              -> base + the SFT LoRA adapter from notebook 01
-  - "DPO"              -> base + the DPO LoRA adapter from notebook 02
+  - "SFT"              -> base + the SFT LoRA adapter
+  - "DPO"              -> merged SFT model + the DPO LoRA adapter
+                          (the DPO adapter was trained on top of the merged
+                          16-bit SFT model, not the raw base)
 
 Environment variables:
   GEC_BASE_MODEL      default 'Qwen/Qwen2.5-3B-Instruct'
-  GEC_SFT_ADAPTER     HF Hub id of the SFT adapter (required for SFT/DPO)
+  GEC_SFT_ADAPTER     HF Hub id of the SFT adapter (required for SFT)
   GEC_DPO_ADAPTER     HF Hub id of the DPO adapter (required for DPO)
+  GEC_DPO_BASE_MODEL  HF Hub id of the merged SFT model the DPO adapter
+                      sits on (required for DPO, e.g.
+                      'Lopato4ka/qwen2.5-3b-gec-sft-merged')
 """
 
 from __future__ import annotations
@@ -58,11 +63,12 @@ EXAMPLES = [
 BASE_MODEL = os.environ.get("GEC_BASE_MODEL", "Qwen/Qwen2.5-3B-Instruct")
 SFT_ADAPTER = os.environ.get("GEC_SFT_ADAPTER", "")
 DPO_ADAPTER = os.environ.get("GEC_DPO_ADAPTER", "")
+DPO_BASE_MODEL = os.environ.get("GEC_DPO_BASE_MODEL", "")
 
 VARIANTS = ["Base + few-shot"]
 if SFT_ADAPTER:
     VARIANTS.append("SFT")
-if DPO_ADAPTER:
+if DPO_ADAPTER and DPO_BASE_MODEL:
     VARIANTS.append("DPO")
 
 DEFAULT_VARIANT = "DPO" if "DPO" in VARIANTS else ("SFT" if "SFT" in VARIANTS else VARIANTS[0])
@@ -73,12 +79,13 @@ def _load(variant: str):
     """Load (tokenizer, model) lazily. Cached per variant."""
     print(f"[boot] loading variant={variant} …")
     t0 = time.time()
-    adapter = None
+    base, adapter = BASE_MODEL, None
     if variant == "SFT":
         adapter = SFT_ADAPTER
     elif variant == "DPO":
-        adapter = DPO_ADAPTER
-    tok, model = load_model(BASE_MODEL, adapter_id=adapter)
+        # The DPO adapter was trained on the merged 16-bit SFT model.
+        base, adapter = DPO_BASE_MODEL, DPO_ADAPTER
+    tok, model = load_model(base, adapter_id=adapter)
     print(f"[boot] loaded {variant} in {time.time() - t0:.1f}s")
     return tok, model
 

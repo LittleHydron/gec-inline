@@ -74,7 +74,7 @@ SFT_CELLS = [
     ),
     code(
         "import os\n"
-        "REPO_URL = os.environ.get('GEC_REPO_URL', 'https://github.com/<your-user>/gec-inline')\n"
+        "REPO_URL = os.environ.get('GEC_REPO_URL', 'https://github.com/LittleHydron/gec-inline')\n"
         "!test -d gec-inline || git clone --depth 1 $REPO_URL\n"
         "%cd gec-inline\n"
         "!ls data/processed/"
@@ -205,12 +205,16 @@ SFT_CELLS = [
         "from huggingface_hub import login\n"
         "login()\n"
         "\n"
-        "HF_USER = 'your-username'  # <- EDIT\n"
+        "HF_USER = 'Lopato4ka'  # <- EDIT if you are not Lopato4ka\n"
         "ADAPTER_REPO = f'{HF_USER}/qwen2.5-3b-gec-sft'\n"
+        "MERGED_REPO  = f'{HF_USER}/qwen2.5-3b-gec-sft-merged'\n"
         "\n"
         "model.push_to_hub(ADAPTER_REPO, private=False)\n"
         "tokenizer.push_to_hub(ADAPTER_REPO, private=False)\n"
-        "print('pushed:', ADAPTER_REPO)"
+        "# Merged 16-bit copy: the DPO stage loads THIS as its base so that\n"
+        "# 'adapter disabled' == the SFT policy (the frozen DPO reference).\n"
+        "model.push_to_hub_merged(MERGED_REPO, tokenizer, save_method='merged_16bit', private=False)\n"
+        "print('pushed:', ADAPTER_REPO, 'and', MERGED_REPO)"
     ),
     md(
         "## 9. (Optional) Generate predictions on the eval set\n"
@@ -270,25 +274,29 @@ DPO_CELLS = [
     md("## 2. Clone the project repo"),
     code(
         "import os\n"
-        "REPO_URL = os.environ.get('GEC_REPO_URL', 'https://github.com/<your-user>/gec-inline')\n"
+        "REPO_URL = os.environ.get('GEC_REPO_URL', 'https://github.com/LittleHydron/gec-inline')\n"
         "!test -d gec-inline || git clone --depth 1 $REPO_URL\n"
         "%cd gec-inline"
     ),
     md(
-        "## 3. Load base model + SFT adapter\n"
-        "We attach a new trainable LoRA on top of the merged-in SFT weights "
-        "so DPO updates a fresh adapter — the SFT adapter itself becomes the "
-        "frozen reference policy."
+        "## 3. Load the merged SFT model + a fresh LoRA\n"
+        "Notebook 01 pushed a merged 16-bit copy of base+SFT. We reload it "
+        "in 4-bit and attach a **new** trainable LoRA, so DPO updates a fresh "
+        "adapter while 'adapter disabled' (TRL's `ref_model=None` trick) is "
+        "exactly the SFT policy — the frozen reference DPO needs.\n"
+        "\n"
+        "(Loading the *adapter* repo here instead would fail: Unsloth returns "
+        "a PeftModel and `get_peft_model` refuses to stack a second adapter.)"
     ),
     code(
         "from unsloth import FastLanguageModel\n"
         "\n"
         "MAX_SEQ_LEN = 1024\n"
-        "BASE_MODEL = 'unsloth/Qwen2.5-3B-Instruct-bnb-4bit'\n"
-        "SFT_ADAPTER = 'your-username/qwen2.5-3b-gec-sft'  # <- EDIT\n"
+        "HF_USER = 'Lopato4ka'  # <- EDIT if you are not Lopato4ka\n"
+        "SFT_MERGED = f'{HF_USER}/qwen2.5-3b-gec-sft-merged'\n"
         "\n"
         "model, tokenizer = FastLanguageModel.from_pretrained(\n"
-        "    model_name = SFT_ADAPTER,  # base + SFT adapter merged in by Unsloth\n"
+        "    model_name = SFT_MERGED,\n"
         "    max_seq_length = MAX_SEQ_LEN,\n"
         "    load_in_4bit = True,\n"
         ")\n"
@@ -372,7 +380,6 @@ DPO_CELLS = [
         "from huggingface_hub import login\n"
         "login()\n"
         "\n"
-        "HF_USER = 'your-username'  # <- EDIT\n"
         "DPO_REPO = f'{HF_USER}/qwen2.5-3b-gec-dpo'\n"
         "\n"
         "model.push_to_hub(DPO_REPO, private=False)\n"
