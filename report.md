@@ -86,9 +86,8 @@ set is balanced in edit-count direction: 1 257 chosen-more /
   a free Colab T4 16 GB via the legacy notebooks. DPO doubles activation
   memory (chosen + rejected forward pass); we run DPO with batch 1 ×
   grad-accum 8.
-- Tokenises English compactly (~1.3 chars/token on BEA), so 10 k
-  training examples fit in well under one epoch of training-time
-  budget on a free T4.
+- Tokenises English compactly (~1.3 chars/token on BEA), which keeps
+  the full 10 k × 2-epoch SFT run at ~73 minutes of L4 time.
 
 ## Evaluation method
 
@@ -229,8 +228,10 @@ notebooks live in the repo at `github.com/LittleHydron/gec-inline`.
 Trained adapters are pushed to the HuggingFace Hub under
 `Lopato4ka/qwen2.5-3b-gec-sft` (plus a merged 16-bit copy at
 `…-sft-merged`, the base the DPO adapter is trained on) and
-`Lopato4ka/qwen2.5-3b-gec-dpo`. The Gradio demo is deployed to a Space
-at `huggingface.co/spaces/Lopato4ka/gec-inline`.
+`Lopato4ka/qwen2.5-3b-gec-dpo`. The Gradio demo runs on a Modal L4 at
+`littlehydron--gec-inline-demo-ui.modal.run` (deployed via
+`modal deploy -m modal_app.serve`; scales to zero when idle), with a
+free-CPU mirror at `huggingface.co/spaces/Lopato4ka/gec-inline`.
 
 Training + prediction generation run on Modal (suggested by the
 assignment PDF; ~$5 of the $30/month free credits for the whole
