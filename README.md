@@ -25,6 +25,20 @@ The bracket syntax is taken verbatim from the LPNLP fine-tuning
 assignment prompt. Built for the third LPNLP homework — see the
 assignment PDF in the parent directory.
 
+## Live demo & artifacts
+
+- **Demo (fast, Modal L4 GPU):** https://littlehydron--gec-inline-demo-ui.modal.run
+  — first request ~30 s while the container wakes, then ~3 s per
+  sentence; scales to zero when idle.
+- **Demo mirror (HF Spaces, free CPU tier — slow):**
+  https://huggingface.co/spaces/Lopato4ka/gec-inline
+- **SFT adapter:** https://huggingface.co/Lopato4ka/qwen2.5-3b-gec-sft
+- **Merged 16-bit SFT (the base the DPO adapter trains on):**
+  https://huggingface.co/Lopato4ka/qwen2.5-3b-gec-sft-merged
+- **DPO adapter:** https://huggingface.co/Lopato4ka/qwen2.5-3b-gec-dpo
+- **Report:** [report.md](report.md) · **Qualitative comparison:**
+  [results/qualitative.md](results/qualitative.md)
+
 ## What's in the box (matches the submission rubric)
 
 | Component | Implementation |
