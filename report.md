@@ -55,14 +55,24 @@ tokens left-to-right (`gec/render.py`). A round-trip unit test
 (`tests/test_m2_roundtrip.py`) verifies that on a sample of 200 real
 BEA sentences `parse(render(source, edits)) == apply(source, edits)`.
 
-DPO pairs are built by `scripts/build_dpo_pairs.py`:
+DPO pairs are built by `scripts/build_dpo_pairs.py` from the SFT
+model's own outputs on a 4 000-sentence train subset. **We trained two
+DPO checkpoints with identical hyperparameters — only the preference
+data differs** (see Results for the consequences):
 
-- `chosen` = gold bracketed completion
-- `rejected` = the SFT model's output when it differs from gold; if
-  the SFT output happens to match gold (which it does for ~30 % of
-  short sentences), we fall back to either (a) a corrupted gold with
-  one random edit deleted, or (b) the gold of a *different* sentence
-  (cross-sentence noise).
+- **v1 (biased — negative result).** `chosen` = gold; `rejected` = the
+  SFT output when it differed from gold, else either gold with one
+  random edit *deleted*, or the gold of a *different* sentence.
+  Already-correct sentences were skipped. All three choices share a
+  hidden bias: `rejected` systematically contains *fewer relevant
+  edits* than `chosen`, so the preference gradient reduces to
+  "more edits ⇒ preferred".
+- **v2 (fixed).** Corruption made symmetric — 50 % delete a gold edit
+  (under-correction), 50 % inject a spurious edit (a no-op `{word=>word}`
+  or a pointless closed-class swap, the exact shapes v1 hallucinated);
+  all 500 already-correct sentences included with the edit-free gold as
+  `chosen`; cross-sentence noise dropped. Edit-count direction across
+  pairs: 1 257 chosen-more / 1 548 rejected-more / 195 equal.
 
 ## Base model
 
@@ -140,21 +150,47 @@ Train-on-responses-only is enabled during SFT (only the assistant span
 contributes to the loss), so the model is not penalized for predicting
 the prompt tokens.
 
+Both DPO checkpoints (v1 and v2) use the **identical** hyperparameters
+above — they differ only in the preference data (see Dataset). This
+isolates the data bias as the cause of the v1 collapse. SFT final train
+loss: 0.223 (2 epochs, 73 min on Modal L4). DPO v1 final train loss:
+0.254 — note this *looked healthy* despite producing a broken model.
+
 ## Results
 
-> Numbers are filled in after Modal training completes. Until then,
-> the only entry below is the **oracle upper bound**: the same
-> ERRANT pipeline applied to the gold target sentences themselves,
-> which tells us how high any model can possibly score given
-> tokenization-edge alignment.
+All numbers on the same eval sets for every model. BEA dev = ERRANT
+P/R/F0.5 over 4 384 sentences; JFLEG = exact-match against any of 4
+references over 754 sentences; parse-fail and trivial-copy as defined
+above. The **oracle** row is the ERRANT pipeline applied to the gold
+target sentences themselves — the alignment-induced ceiling.
 
 | Model | BEA dev ERRANT P | R | F0.5 | parse fail | trivial copy | JFLEG exact-match |
 | --- | --- | --- | --- | --- | --- | --- |
 | Oracle (gold → ERRANT realign) | 0.863 | 0.877 | **0.865** | 0.000 | 0.357 | — |
-| Base, zero-shot | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| Base, 3-shot | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| **SFT (ours)** | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| **SFT + DPO (ours)** | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+| Base, zero-shot | 0.036 | 0.105 | 0.042 | 0.231 | 0.015 | 0.005 |
+| Base, 3-shot | 0.143 | 0.121 | 0.138 | 0.047 | 0.192 | 0.133 |
+| **SFT (ours)** | 0.440 | 0.399 | **0.431** | 0.002 | 0.321 | **0.293** |
+| SFT + DPO **v1** (biased pairs) | 0.120 | 0.380 | 0.139 | 0.065 | 0.029 | 0.021 |
+| SFT + DPO **v2** (fixed pairs) | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+
+Reading of the table:
+
+- **Fine-tuning gain is 3.1× the fair baseline** (F0.5 0.431 vs 0.138
+  for base + 3-shot). Zero-shot is near zero (0.042) — the inline
+  format is simply not in the base model's prior, and 23 % of its
+  outputs aren't even parseable.
+- **SFT nails the format**: parse failures drop to 0.2 %, and its
+  trivial-copy rate (0.321) sits just under the dev set's actual
+  already-correct rate (0.357) — neither over- nor under-correcting.
+  The base + 3-shot model scores most of its JFLEG "exact matches" by
+  copying the input (trivial-copy 0.192 ≈ its EM 0.133); SFT's matches
+  come from real corrections.
+- **DPO v1 is a clean negative result**: recall barely moves
+  (0.380 vs SFT's 0.399 — the right edits are still found) but
+  precision collapses 0.440 → 0.120 under 20 788 false-positive edits
+  (SFT: 3 795), landing F0.5 back at the 3-shot baseline level. See
+  the DPO-pairs section above for the data bias that caused it, and
+  **Other notes** for the mechanism.
 
 The oracle ceiling of 0.865 (not 1.000) comes from ERRANT realigning
 our reconstructed source → corrected pair from scratch; some edits get
@@ -164,17 +200,39 @@ report.
 
 ## Other notes / findings
 
-_To be filled in once training completes. Expected observations
-based on prior GEC fine-tuning literature with 3 B-class models:_
-
-- SFT drives parse-failure rate to near zero within ~200 steps; the
-  format is easy to learn.
-- The largest residual errors after SFT are missed insertions of
-  short closed-class words ("the", "a", commas) rather than incorrect
-  word choices — the model becomes confident and conservative.
-- DPO with corruption-based rejections improves precision more than
-  recall (it teaches the model to avoid spurious edits), pushing F0.5
-  up slightly without changing F1 much.
+- **The format is easy; the task is the hard part.** SFT drove
+  parse failures from 23 % (zero-shot) to 0.2 %. The few SFT parse
+  failures left are `max_new_tokens` truncations on very long
+  sentences, not malformed braces.
+- **The main finding: DPO amplifies preference-data bias far more
+  aggressively than SFT absorbs label noise.** v1's pairs encoded
+  "more edits ⇒ preferred" three different ways (see Dataset). The
+  trained model reward-hacked exactly that proxy: edit density
+  exploded from 2.79 (SFT) to **11.22 edits/sentence**, including
+  2.11 *no-op* edits per sentence (`{could=>could}`, `{sex=>sex}`)
+  and gratuitous paraphrases of correct text (`{purchase=>buy}`).
+  Trivial-copy collapsed to 0.029 — the model became *unable* to
+  leave a sentence alone. None of these shapes exist in the gold
+  data; SFT on the same gold never produced them. As a side effect
+  the over-editing also made v1 generation ~2.5× slower per batch
+  (longer outputs).
+- **Diagnosis path worth noting:** the collapse was caught by the
+  *auxiliary* metrics (trivial-copy 0.029 vs the ~0.36 base rate;
+  no-op edit counts), not by eyeballing losses — v1's DPO training
+  loss looked perfectly healthy (0.693 → 0.254).
+- Residual SFT errors skew toward missed insertions of short
+  closed-class words ("the", "a", commas) — confident but
+  conservative, consistent with prior GEC literature.
+- Base + 3-shot mimics the bracket surface form but contributes no
+  correction quality: its JFLEG exact matches are nearly all trivial
+  copies, and it emits 0.35 no-op edits/sentence copying the few-shot
+  examples' pattern.
+- JFLEG (fluency-oriented, 4 refs) systematically under-rewards
+  BEA-trained models — they make minimal grammatical edits where
+  JFLEG references rewrite for fluency. ERRANT F0.5 on BEA dev is the
+  metric matched to the training distribution; JFLEG exact-match is a
+  format-independent sanity check, not a headline number.
+- _[DPO v2 outcome — filled in after the retrain evaluates.]_
 
 ## Reproducibility
 
