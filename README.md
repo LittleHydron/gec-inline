@@ -41,11 +41,12 @@ assignment PDF in the parent directory.
 ## Running locally
 
 Python 3.12 is fine; ERRANT (the eval metric) installs cleanly with the
-pinned versions in `requirements.txt`.
+pinned versions in `requirements-dev.txt` (runtime deps are split into
+`requirements.txt` so the HF Space build stays slim).
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 .venv/bin/python -m spacy download en_core_web_sm
 
 # Fetch BEA-2019 + JFLEG, format the train/eval JSONLs:

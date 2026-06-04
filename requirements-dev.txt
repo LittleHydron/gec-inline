@@ -1,0 +1,8 @@
+# Eval + test extras, installed on top of requirements.txt.
+# ERRANT (the BEA metric) and its spacy dependency are CPU-only and are
+# never needed by the Space / demo — keep them out of requirements.txt
+# (spacy<3.8 has no wheels for newer Pythons and fails the Space build).
+errant==3.0.0
+spacy>=3.7,<3.8
+datasets>=2.18.0
+pytest>=8.0
