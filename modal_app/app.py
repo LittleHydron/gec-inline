@@ -464,10 +464,17 @@ def sft(hf_user: str = HF_USER, max_steps: int = 0, no_push: bool = False):
 
 
 @app.local_entrypoint()
-def dpo(hf_user: str = HF_USER, reuse_pairs: bool = False):
-    """Generate SFT-on-train predictions, rebuild DPO pairs, then train DPO."""
+def dpo(hf_user: str = HF_USER, reuse_pairs: bool = False,
+        skip_subset_gen: bool = False):
+    """Generate SFT-on-train predictions, rebuild DPO pairs, then train DPO.
+
+    --skip-subset-gen reuses the existing sft_train_subset.jsonl in the
+    volume (e.g. when only the pair-building logic changed);
+    --reuse-pairs skips straight to training.
+    """
     if not reuse_pairs:
-        generate.remote({**TRAIN_SUBSET_CONFIG, "adapter": adapter_repo(hf_user)})
+        if not skip_subset_gen:
+            generate.remote({**TRAIN_SUBSET_CONFIG, "adapter": adapter_repo(hf_user)})
         build_dpo_pairs.remote()
     print(train_dpo.remote(hf_user))
 
